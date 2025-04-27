@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+
+       tools {
+        maven 'maven3'
+    }
+
+    stages {
+      stage('checkout') {
+            steps {
+                echo 'Cloning GIT HUB Repo '
+				git branch: 'main', url: 'https://github.com/saicharan-clan/mindcircuit13.git'
+            }  
+        }
+		
+		
+		
+	 stage('sonar') {
+            steps {
+                echo 'scanning project'
+                sh 'ls -ltr'
+                
+                sh ''' mvn sonar:sonar \\
+                      -Dsonar.host.url=http://34.234.85.235:9000 \\
+                      -Dsonar.login=sqa_8ed53399afa6a217c640a514303f61ba762fc029'''
+            }
+    	}
+		
+		
+		
+        stage('Build Artifact') {
+            steps {
+                echo 'Build Artifact'
+				sh 'mvn clean package'
+            }
+        }
+		
+		
+		
+        stage('Docker Image') {
+            steps {
+                echo 'Docker Image building'
+				sh 'docker build -t saicharan09/batch13:${BUILD_NUMBER} .'
+            }
+        }
+        
+        stage('Scanning Container Image') {
+            steps {
+                echo "Scanning Docker image with Trivy"
+                sh "trivy image --format table saicharan09/batch13:${BUILD_NUMBER}"
+            }
+        }
+		
+		
+       stage('Push to Dockerhub') {
+            steps {
+			 script {
+			withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhub')]) 
+			{
+            sh 'docker login -u saicharan09 -p ${dockerhub}'
+			
+			 }
+			   sh 'docker push saicharan09/batch13:${BUILD_NUMBER}'
+			   
+           
+				}
+				
+            }
+        }
+		
+		
+    stage('Update Deployment File') {
+		
+		 environment {
+            GIT_REPO_NAME = "mindcircuit13"
+            GIT_USER_NAME = "saicharan-clan"
+        }
+		
+            steps {
+                echo 'Update Deployment File'
+				withCredentials([string(credentialsId: 'githubtoken', variable: 'githubtoken')]) 
+				{
+                  sh '''
+                    git config user.email "ssaicharan612@gmail.com"
+                    git config user.name "saicharan-clan"
+                    BUILD_NUMBER=${BUILD_NUMBER}
+                    sed -i "s/batch13:.*/batch13:${BUILD_NUMBER}/g" deploymentfiles/deployment.yml
+                    git add .
+                    
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+
+                    git push https://${githubtoken}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                '''
+				  
+                 }
+				
+            }
+        }
+		
+		
+			
+    }
+
+}
